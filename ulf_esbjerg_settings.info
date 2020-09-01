@@ -1,0 +1,4 @@
+name = Ulf Esbjerg settings
+description = Holds settings specific to ude.nu
+core = 7.x
+package = Ulf base

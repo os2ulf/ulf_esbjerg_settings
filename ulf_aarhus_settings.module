@@ -1,0 +1,112 @@
+<?php
+
+/**
+ * Implements hook_video_embed_handler_info_alter().
+ */
+function ulf_esbjerg_settings_video_embed_handler_info_alter(&$info) {
+  $info['youtube']['function'] = '_ulf_aarhus_settings_youtube_embed';
+  $info['vimeo']['function'] = '_ulf_aarhus_settings_vimeo_embed';
+}
+
+/**
+ * Custom youtube embed handler.
+ * Grabbed from video_embed_field/video_embed_field.handlers.inc and added
+ * consent attributes.
+ *
+ * @param $url
+ * @param $settings
+ *
+ * @return array
+ */
+function _ulf_esbjerg_settings_youtube_embed($url, $settings) {
+  $output = array();
+
+  if(preg_match('/#t=((?P<min>\d+)m)?((?P<sec>\d+)s)?((?P<tinsec>\d+))?/', $url, $matches)){
+    if(isset($matches['tinsec'])){
+      $settings['start'] = $matches['tinsec']; // url already in form #t=125 for 2 minutes and 5 seconds
+    } else {
+      // url in form #t=2m5s or with other useless data, this is why we still keep adding the default data..
+      // give it some default data in case there is no #t=...
+      $matches += array(
+        "min" => 0,
+        "sec" => 0,
+      );
+      if ($time = ($matches["min"] * 60) + $matches["sec"]) {
+        $settings['start'] = $time;
+      }
+    }
+  }
+
+  $id = _video_embed_field_get_youtube_id($url);
+  if (!$id) {
+    // We can't decode the URL - just return the URL as a link.
+    $output['#markup'] = l($url, $url);
+    return $output;
+  }
+
+  // Add class to variable to avoid adding it to URL param string.
+  $class = $settings['class'];
+  unset($settings['class']);
+
+  // Construct the embed code.
+  $settings['wmode'] = 'opaque';
+  $settings_str = urlencode(_video_embed_code_get_settings_str($settings));
+
+  $output['#markup'] = '<iframe src="" data-category-consent="cookie_cat_statistic" class="' . check_plain($class) . '" width="' . check_plain($settings['width']) . '" height="' . check_plain($settings['height']) . '" data-consent-src="//www.youtube.com/embed/' . $id . '?' . $settings_str . '" frameborder="0" allowfullscreen></iframe>';
+
+  return $output;
+}
+
+/**
+ * Custom vimeo embed handler.
+ * Grabbed from video_embed_field/video_embed_field.handlers.inc and added
+ * consent attributes.
+ *
+ * @param $url
+ * @param $settings
+ *
+ * @return array
+ */
+function _ulf_esbjerg_settings_vimeo_embed($url, $settings) {
+  $vimeo_data = _video_embed_field_get_vimeo_data($url);
+
+  // Get ID of video from URL.
+  $id = _video_embed_field_get_vimeo_id($vimeo_data);
+
+  if (empty($id)) {
+    return array(
+      '#markup' => l($url, $url),
+    );
+  }
+
+  // Construct the embed code.
+  $settings['player_id'] = drupal_html_id('vimeo-' . $id);
+  if (!empty($settings['froogaloop'])) {
+    $settings['api'] = 1;
+  }
+  unset($settings['froogaloop']);
+
+  // Add class to variable to avoid adding it to URL param string.
+  $class = $settings['class'];
+  unset($settings['class']);
+
+  $settings_str = _video_embed_code_get_settings_str($settings);
+
+  return array(
+    '#markup' => '<iframe src="" data-category-consent="cookie_cat_statistic" class="' . check_plain($class) . '" id="' . $settings['player_id'] . '" width="' . check_plain($settings['width']) . '" height="' . check_plain($settings['height']) . '" data-consent-src="//player.vimeo.com/video/' . $id .
+      '?' . $settings_str . '" frameborder="0" webkitAllowFullScreen mozallowfullscreen allowfullscreen></iframe>',
+  );
+}
+
+function ulf_esbjerg_settings_views_post_execute(&$view) {
+  if ($view->name == 'ulf_courses') {
+    foreach ($view->result as $result) {
+      if (!empty($result->field_field_collection_price)) {
+        $entity = reset($result->field_field_collection_price[0]['rendered']['entity']['field_collection_item']);
+        $price = $entity['field_price'][0]['#markup'] . ',- ' . $entity['field_unit_price'][0]['#markup'] . ' (' . $entity['field_moms'][0]['#markup'] .')';
+        $result->field_field_collection_price[0]['rendered']['#markup'] = $price;
+      }
+
+    }
+  }
+}
