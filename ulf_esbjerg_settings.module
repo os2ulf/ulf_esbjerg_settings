@@ -1,0 +1,260 @@
+<?php
+
+/**
+ * Implements hook_video_embed_handler_info_alter().
+ */
+function ulf_esbjerg_settings_video_embed_handler_info_alter(&$info) {
+  $info['youtube']['function'] = '_ulf_aarhus_settings_youtube_embed';
+  $info['vimeo']['function'] = '_ulf_aarhus_settings_vimeo_embed';
+}
+
+/**
+ * Custom youtube embed handler.
+ * Grabbed from video_embed_field/video_embed_field.handlers.inc and added
+ * consent attributes.
+ *
+ * @param $url
+ * @param $settings
+ *
+ * @return array
+ */
+function _ulf_esbjerg_settings_youtube_embed($url, $settings) {
+  $output = array();
+
+  if(preg_match('/#t=((?P<min>\d+)m)?((?P<sec>\d+)s)?((?P<tinsec>\d+))?/', $url, $matches)){
+    if(isset($matches['tinsec'])){
+      $settings['start'] = $matches['tinsec']; // url already in form #t=125 for 2 minutes and 5 seconds
+    } else {
+      // url in form #t=2m5s or with other useless data, this is why we still keep adding the default data..
+      // give it some default data in case there is no #t=...
+      $matches += array(
+        "min" => 0,
+        "sec" => 0,
+      );
+      if ($time = ($matches["min"] * 60) + $matches["sec"]) {
+        $settings['start'] = $time;
+      }
+    }
+  }
+
+  $id = _video_embed_field_get_youtube_id($url);
+  if (!$id) {
+    // We can't decode the URL - just return the URL as a link.
+    $output['#markup'] = l($url, $url);
+    return $output;
+  }
+
+  // Add class to variable to avoid adding it to URL param string.
+  $class = $settings['class'];
+  unset($settings['class']);
+
+  // Construct the embed code.
+  $settings['wmode'] = 'opaque';
+  $settings_str = urlencode(_video_embed_code_get_settings_str($settings));
+
+  $output['#markup'] = '<iframe src="" data-category-consent="cookie_cat_statistic" class="' . check_plain($class) . '" width="' . check_plain($settings['width']) . '" height="' . check_plain($settings['height']) . '" data-consent-src="//www.youtube.com/embed/' . $id . '?' . $settings_str . '" frameborder="0" allowfullscreen></iframe>';
+
+  return $output;
+}
+
+/**
+ * Custom vimeo embed handler.
+ * Grabbed from video_embed_field/video_embed_field.handlers.inc and added
+ * consent attributes.
+ *
+ * @param $url
+ * @param $settings
+ *
+ * @return array
+ */
+function _ulf_esbjerg_settings_vimeo_embed($url, $settings) {
+  $vimeo_data = _video_embed_field_get_vimeo_data($url);
+
+  // Get ID of video from URL.
+  $id = _video_embed_field_get_vimeo_id($vimeo_data);
+
+  if (empty($id)) {
+    return array(
+      '#markup' => l($url, $url),
+    );
+  }
+
+  // Construct the embed code.
+  $settings['player_id'] = drupal_html_id('vimeo-' . $id);
+  if (!empty($settings['froogaloop'])) {
+    $settings['api'] = 1;
+  }
+  unset($settings['froogaloop']);
+
+  // Add class to variable to avoid adding it to URL param string.
+  $class = $settings['class'];
+  unset($settings['class']);
+
+  $settings_str = _video_embed_code_get_settings_str($settings);
+
+  return array(
+    '#markup' => '<iframe src="" data-category-consent="cookie_cat_statistic" class="' . check_plain($class) . '" id="' . $settings['player_id'] . '" width="' . check_plain($settings['width']) . '" height="' . check_plain($settings['height']) . '" data-consent-src="//player.vimeo.com/video/' . $id .
+      '?' . $settings_str . '" frameborder="0" webkitAllowFullScreen mozallowfullscreen allowfullscreen></iframe>',
+  );
+}
+
+function ulf_esbjerg_settings_views_post_execute(&$view) {
+  if ($view->name == 'ulf_courses') {
+    foreach ($view->result as $result) {
+      if (!empty($result->field_field_collection_price)) {
+        $entity = reset($result->field_field_collection_price[0]['rendered']['entity']['field_collection_item']);
+        $price = $entity['field_price'][0]['#markup'] . ',- ' . $entity['field_unit_price'][0]['#markup'] . ' (' . $entity['field_moms'][0]['#markup'] .')';
+        $result->field_field_collection_price[0]['rendered']['#markup'] = $price;
+      }
+
+    }
+  }
+}
+
+/**
+ * Access callback for user profiles.
+ */
+function ulf_esbjerg_settings_access($account = NULL) {
+  global $user;
+  if (!isset($account)) {
+    $account = $user;
+  }
+
+  if(in_array('company', $account->roles)) {
+    return TRUE;
+  } else {
+    return user_view_access($account);
+  }
+}
+
+/**
+ * Implements hook_user_presave().
+ */
+function ulf_esbjerg_settings_user_presave(&$edit, $account, $category)
+{
+  if($edit['status'] == 1) {
+    $role = user_role_load_by_name('company');
+    if(isset($edit['roles'][$role->rid]) && $edit['roles'][$role->rid] != 0) {
+      $edit['status'] = 0;
+    }
+  }
+}
+
+/**
+ * Implements hook_field_default_field_bases_alter().
+ */
+
+function ulf_esbjerg_settings_field_default_field_bases_alter(&$fields)
+{
+  if(isset($fields['field_message_parent_node'])) {
+    $fields['field_message_parent_node']['settings']['handler_settings']['target_bundles']['internship'] = 'internship';
+    $fields['field_message_parent_node']['settings']['handler_settings']['target_bundles']['education'] = 'education';
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ */
+function ulf_esbjerg_settings_form_alter(&$form, &$form_state, $form_id) {
+
+  if ($form_id == 'internship_node_form' || $form_id == 'education_node_form') {
+    $node = $form_state['node'];
+    $form['company'] = $form['author'];
+    unset($form['company']['date']);
+    unset($form['author']['name']);
+    $form['author']['#attributes']['class'] = [];
+    $form['author']['#title'] = 'Oprettelsesdato';
+    if (!isset($node->nid) || isset($node->is_new)) {
+      $form['company']['name']['#default_value'] = '';
+    }
+    $form['company']['name']['#description'] = '';
+    $form['company']['name']['#required'] = TRUE;
+    $form['company']['name']['#title'] = 'Udbyder';
+    $form['company']['#attributes']['class'] = [];
+    $form['company']['#weight'] = -9;
+    $form['company']['#group'] = NULL;
+    $form['company']['#collapsed'] = FALSE;
+    $form['company']['#title'] = 'Udbyder';
+
+    $form['field_period']['#states'] = [
+      'invisible' => [
+        ':input[name="field_period_full_year[und]"]' => ['checked' => TRUE],
+      ],
+    ];
+
+
+    if ($form_id == 'education_node_form') {
+      $form['field_subjects_primary_school'][LANGUAGE_NONE]['#ajax'] = [
+        'callback' => 'dynamically_change_competencies_options',
+        'wrapper' => 'competencies-wrapper',
+        'method' => 'replace',
+        'effect' => 'fade',
+      ];
+      $form['field_competencies']['und']['#prefix'] = '<div id="competencies-wrapper">';
+      $form['field_competencies']['und']['#suffix'] = '</div>';
+
+      if (isset($form_state['values'])) {
+        //ajax request
+        $subjects = array_column($form_state['values']['field_subjects_primary_school']['und'], 'tid');
+        if ($subjects[0] === NULL) {
+          $subjects = [];
+        }
+      }
+      else {
+        if (!isset($node->nid) || isset($node->is_new)) {
+          //creating new node
+          $subjects = [];
+        }
+        else {
+          //editing existing node
+          $subjects = [];
+          if (isset($node->field_subjects_primary_school['und'])) {
+            $subjects = array_column($node->field_subjects_primary_school['und'], 'tid');
+          }
+        }
+      }
+
+      $subject_options = $form['field_subjects_primary_school'][LANGUAGE_NONE]['#options'];
+      $taxonomy_tree = taxonomy_get_tree(taxonomy_vocabulary_machine_name_load('competencies')->vid, 0, NULL, TRUE);
+      $competencies_options = [];
+      foreach ($taxonomy_tree as $term) {
+        if (in_array($term->field_parent_subject['und'][0]['tid'], $subjects)) {
+          $competencies_options[$term->tid] = $subject_options[$term->field_parent_subject['und'][0]['tid']] . ' - ' . $term->name;
+        }
+      }
+
+      $form['field_competencies']['und']['#options'] = $competencies_options;
+      if (!$competencies_options) {
+        $form['field_competencies']['und']['#description'] = 'Vælg først fag';
+      }
+
+    }
+  }
+}
+
+function dynamically_change_competencies_options($form, $form_state) {
+  return $form['field_competencies'];
+}
+
+function ulf_esbjerg_settings_views_default_views_alter(&$views) {
+  if(isset($views['ulf_workbench_edits_by_user'])) {
+    $view = $views['ulf_workbench_edits_by_user'];
+    foreach ($view->display as $id => $display) {
+      if($filter = $view->get_item($id, 'filter', 'type')) {
+        $filter['value']['internship'] = 'internship';
+        $filter['value']['education'] = 'education';
+        $view->set_item($id, 'filter', 'type', $filter);
+      }
+    }
+  }
+  if(isset($views['ulf_frontpage_promoted_courses'])) {
+    $view = $views['ulf_frontpage_promoted_courses'];
+    foreach ($view->display as $id => $display) {
+      if($filter = $view->get_item($id, 'filter', 'type')) {
+        $filter['value']['internship'] = 'internship';
+        $filter['value']['education'] = 'education';
+        $view->set_item($id, 'filter', 'type', $filter);
+      }
+    }
+  }
+}
